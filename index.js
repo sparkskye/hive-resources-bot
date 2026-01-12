@@ -1,48 +1,94 @@
-import { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder } from "discord.js";
+import { 
+  Client, 
+  GatewayIntentBits, 
+  SlashCommandBuilder, 
+  REST, 
+  Routes, 
+  EmbedBuilder 
+} from "discord.js";
+
 import fetch from "node-fetch";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-const API_URL = process.env.HIVE_API_URL;
+const MAP_API = process.env.HIVE_API_URL; 
+// This is your Apps Script /exec endpoint
+
+
+// =====================
+// Discord Client
+// =====================
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 
-// ---- Register Slash Command ----
+// =====================
+// Slash Command Builders
+// =====================
+
+const mapCommand = new SlashCommandBuilder()
+  .setName("map")
+  .setDescription("Fetch a Hive Resources map download")
+  .addStringOption(opt =>
+    opt.setName("gamemode")
+      .setDescription("Gamemode")
+      .setRequired(true)
+      .setAutocomplete(true)
+  )
+  .addStringOption(opt =>
+    opt.setName("map")
+      .setDescription("Map name")
+      .setRequired(true)
+      .setAutocomplete(true)
+  );
+
+const modelCommand = new SlashCommandBuilder()
+  .setName("model")
+  .setDescription("Fetch a Hive Resources model (entity / item)")
+  .addStringOption(opt =>
+    opt.setName("gamemode")
+      .setDescription("Gamemode")
+      .setRequired(true)
+      .setAutocomplete(true)
+  )
+  .addStringOption(opt =>
+    opt.setName("model")
+      .setDescription("Model name")
+      .setRequired(true)
+      .setAutocomplete(true)
+  );
+
 const commands = [
-  new SlashCommandBuilder()
-    .setName("map")
-    .setDescription("Fetch a Hive Resources map download")
-    .addStringOption(opt =>
-      opt.setName("gamemode")
-        .setDescription("Gamemode")
-        .setRequired(true)
-        .setAutocomplete(true)
-    )
-    .addStringOption(opt =>
-      opt.setName("map")
-        .setDescription("Map name")
-        .setRequired(true)
-        .setAutocomplete(true)
-    )
-].map(c => c.toJSON());
+  mapCommand.toJSON(),
+  modelCommand.toJSON()
+];
+
+
+// =====================
+// Register Commands
+// =====================
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 (async () => {
-  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+  await rest.put(
+    Routes.applicationCommands(CLIENT_ID),
+    { body: commands }
+  );
   console.log("Slash commands registered");
 })();
 
 
-// ---- Safe Autocomplete Helper ----
+// =====================
+// Helper: Safe Autocomplete Respond
+// =====================
+
 async function safeRespond(interaction, choices) {
   try {
     if (!interaction.responded) {
       await interaction.respond(choices);
     }
   } catch (err) {
-    // Ignore "Unknown interaction" errors — Discord timed out
     if (err.code !== 10062) {
       console.error("Autocomplete error:", err);
     }
@@ -50,89 +96,183 @@ async function safeRespond(interaction, choices) {
 }
 
 
-// ---- Interaction Handling ----
+// =====================
+// Interaction Handler
+// =====================
+
 client.on("interactionCreate", async (interaction) => {
 
-  // ===== AUTOCOMPLETE =====
-  if (interaction.isAutocomplete()) {
-    const focused = interaction.options.getFocused(true);
-    const gm = interaction.options.getString("gamemode") || "";
+  // ---------------------
+  // AUTOCOMPLETE
+  // ---------------------
 
-    // Immediately defer by sending empty response if slow
-    // (prevents Discord timeout)
-    const start = Date.now();
+  if (interaction.isAutocomplete()) {
+
+    const focused = interaction.options.getFocused(true);
+    const command = interaction.commandName;
 
     try {
-      // ---- Gamemode ----
-      if (focused.name === "gamemode") {
-        const res = await fetch(`${API_URL}?api=gamemodes`);
-        const gamemodes = await res.json();
 
-        const filtered = gamemodes
-          .filter(x => x.toLowerCase().includes(focused.value.toLowerCase()))
-          .slice(0, 25)
-          .map(x => ({ name: x, value: x }));
+      // ---- /map autocomplete ----
+      if (command === "map") {
 
-        return safeRespond(interaction, filtered);
+        if (focused.name === "gamemode") {
+          const res = await fetch(`${MAP_API}?api=gamemodes`);
+          const gamemodes = await res.json();
+
+          const filtered = gamemodes
+            .filter(g => g.toLowerCase().includes(focused.value.toLowerCase()))
+            .slice(0, 25)
+            .map(g => ({ name: g, value: g }));
+
+          return safeRespond(interaction, filtered);
+        }
+
+        if (focused.name === "map") {
+          const gm = interaction.options.getString("gamemode");
+          if (!gm) return safeRespond(interaction, []);
+
+          const res = await fetch(`${MAP_API}?api=maps&gamemode=${encodeURIComponent(gm)}`);
+          const maps = await res.json();
+
+          const filtered = maps
+            .filter(m => m.toLowerCase().includes(focused.value.toLowerCase()))
+            .slice(0, 25)
+            .map(m => ({ name: m, value: m }));
+
+          return safeRespond(interaction, filtered);
+        }
       }
 
-      // ---- Map ----
-      if (focused.name === "map") {
-        if (!gm) return safeRespond(interaction, []);
 
-        const res = await fetch(`${API_URL}?api=maps&gamemode=${encodeURIComponent(gm)}`);
-        const maps = await res.json();
+      // ---- /model autocomplete ----
+      if (command === "model") {
 
-        const filtered = maps
-          .filter(x => x.toLowerCase().includes(focused.value.toLowerCase()))
-          .slice(0, 25)
-          .map(x => ({ name: x, value: x }));
+        // Gamemode list (reuse same gamemode source as maps)
+        if (focused.name === "gamemode") {
+          const res = await fetch(`${MAP_API}?api=gamemodes`);
+          const gamemodes = await res.json();
 
-        return safeRespond(interaction, filtered);
+          const filtered = gamemodes
+            .filter(g => g.toLowerCase().includes(focused.value.toLowerCase()))
+            .slice(0, 25)
+            .map(g => ({ name: g, value: g }));
+
+          return safeRespond(interaction, filtered);
+        }
+
+        // Model list per gamemode
+        if (focused.name === "model") {
+          const gm = interaction.options.getString("gamemode");
+          if (!gm) return safeRespond(interaction, []);
+
+          // This hits your model-viewer Apps Script JSON mode
+          const res = await fetch(`${MAP_API}?api=models&gamemode=${encodeURIComponent(gm)}`);
+          const models = await res.json();
+
+          const filtered = models
+            .filter(m => m.name.toLowerCase().includes(focused.value.toLowerCase()))
+            .slice(0, 25)
+            .map(m => ({ name: m.name, value: m.name }));
+
+          return safeRespond(interaction, filtered);
+        }
       }
 
-    } catch (err) {
+    } catch {
       return safeRespond(interaction, []);
     }
   }
 
 
-  // ===== SLASH COMMAND =====
+  // ---------------------
+  // SLASH COMMAND EXECUTION
+  // ---------------------
+
   if (!interaction.isChatInputCommand()) return;
-  if (interaction.commandName !== "map") return;
 
-  await interaction.deferReply();
+  // ===== /map =====
+  if (interaction.commandName === "map") {
 
-  const gamemode = interaction.options.getString("gamemode", true);
-  const map = interaction.options.getString("map", true);
+    await interaction.deferReply();
 
-  try {
-    const url = `${API_URL}?api=map&gamemode=${encodeURIComponent(gamemode)}&map=${encodeURIComponent(map)}`;
-    const res = await fetch(url);
-    const data = await res.json();
+    const gamemode = interaction.options.getString("gamemode", true);
+    const mapName = interaction.options.getString("map", true);
 
-    if (data.error) {
-      return interaction.editReply(`❌ ${data.error}`);
+    try {
+      const res = await fetch(
+        `${MAP_API}?api=map&gamemode=${encodeURIComponent(gamemode)}&map=${encodeURIComponent(mapName)}`
+      );
+      const data = await res.json();
+
+      if (data.error) {
+        return interaction.editReply(`❌ ${data.error}`);
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x00afff)
+        .setTitle("Hive Resources")
+        .setDescription(
+          `**Gamemode:** \`${data.gamemode}\`\n` +
+          `**Map:** \`${data.name}\`\n` +
+          `**Download (\`.${data.format}\`):** [Click here](${data.downloadUrl})`
+        )
+        .setImage(data.imgUrl)
+        .setFooter({ text: "Hive Resources" });
+
+      return interaction.editReply({ embeds: [embed] });
+
+    } catch {
+      return interaction.editReply("❌ Error contacting Hive Resources API.");
     }
+  }
 
-  const embed = new EmbedBuilder()
-    .setColor(0x00afff)
-    .setTitle("Hive Resources")
-    .setDescription(
-      `**Gamemode:** \`${map.gamemode}\`\n` +
-      `**Map:** \`${map.name}\`\n` +
-      `**Download (\`.${map.format}\`):** [Click here](${map.download})`
-    )
-    .setImage(map.image)
-    .setFooter({ text: "Hive Resources" });
 
-    if (data.imgUrl) embed.setImage(data.imgUrl);
+  // ===== /model =====
+  if (interaction.commandName === "model") {
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.deferReply();
 
-  } catch (err) {
-    await interaction.editReply("❌ Error contacting Hive Resources API");
+    const gamemode = interaction.options.getString("gamemode", true);
+    const modelName = interaction.options.getString("model", true);
+
+    try {
+      const res = await fetch(
+        `${MAP_API}?api=model&gamemode=${encodeURIComponent(gamemode)}&model=${encodeURIComponent(modelName)}`
+      );
+      const data = await res.json();
+
+      if (data.error) {
+        return interaction.editReply(`❌ ${data.error}`);
+      }
+
+      // Link to your 3D viewer page
+      const viewerUrl =
+        `${MAP_API.replace("/exec","")}?game=${encodeURIComponent(gamemode)}&open=${encodeURIComponent(modelName)}`;
+
+      const embed = new EmbedBuilder()
+        .setColor(0x00afff)
+        .setTitle("Hive Resources")
+        .setDescription(
+          `**Gamemode:** \`${gamemode}\`\n` +
+          `**Model:** \`${modelName}\`\n` +
+          `**3D Preview:** [Open viewer](${viewerUrl})\n` +
+          `**Download (\`.${data.format}\`):** [Click here](${data.downloadUrl})`
+        )
+        .setImage(data.imgUrl)
+        .setFooter({ text: "Hive Resources" });
+
+      return interaction.editReply({ embeds: [embed] });
+
+    } catch {
+      return interaction.editReply("❌ Error contacting Hive Resources API.");
+    }
   }
 });
+
+
+// =====================
+// Login
+// =====================
 
 client.login(TOKEN);

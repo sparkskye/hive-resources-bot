@@ -115,12 +115,16 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.editReply(`❌ ${data.error}`);
     }
 
-    const embed = new EmbedBuilder()
-      .setTitle(data.name)
-      .setDescription(`**Gamemode:** ${data.gamemode}`)
-      .addFields({ name: "Download (.glb)", value: `[Click here](${data.downloadUrl})` })
-      .setColor(0x00afff)
-      .setFooter({ text: "Hive Resources" });
+  const embed = new EmbedBuilder()
+    .setColor(0x00afff)
+    .setTitle("Hive Resources")
+    .setDescription(
+      `**Gamemode:** \`${map.gamemode}\`\n` +
+      `**Map:** \`${map.name}\`\n` +
+      `**Download (\`.${map.format}\`):** [Click here](${map.download})`
+    )
+    .setImage(map.image)
+    .setFooter({ text: "Hive Resources" });
 
     if (data.imgUrl) embed.setImage(data.imgUrl);
 

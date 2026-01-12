@@ -15,20 +15,31 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const MAP_API = process.env.HIVE_API_URL;           
 const MODELS_API = process.env.HIVE_MODELS_API_URL;
 
-// Your Discord server (guild) ID for instant command updates
 const GUILD_ID = "1197113840899461140";
 
 
-// =====================
-// Discord Client
-// =====================
+// ---------- Helpers ----------
+
+// Convert folder display names → discord-friendly format
+function formatGamemode(name) {
+  return name
+    .toLowerCase()
+    .replace(/ — /g, ": ")
+    .replace(/ - /g, ": ");
+}
+
+// Convert discord-friendly → original folder format
+function unformatGamemode(name, originalList) {
+  return originalList.find(g => formatGamemode(g) === name) || name;
+}
+
+
+// ---------- Discord Client ----------
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 
-// =====================
-// Slash Commands
-// =====================
+// ---------- Slash Commands ----------
 
 const mapCommand = new SlashCommandBuilder()
   .setName("map")
@@ -68,9 +79,7 @@ const commands = [
 ];
 
 
-// =====================
-// Register Commands (Guild for instant updates)
-// =====================
+// ---------- Register Commands (Guild) ----------
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
@@ -83,33 +92,22 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 })();
 
 
-// =====================
-// Helper: Safe Autocomplete
-// =====================
+// ---------- Safe Autocomplete ----------
 
 async function safeRespond(interaction, choices) {
   try {
     if (!interaction.responded) {
       await interaction.respond(choices);
     }
-  } catch (err) {
-    if (err.code !== 10062) {
-      console.error("Autocomplete error:", err);
-    }
-  }
+  } catch {}
 }
 
 
-// =====================
-// Interaction Handler
-// =====================
+// ---------- Interaction Handler ----------
 
 client.on("interactionCreate", async (interaction) => {
 
-  // ---------------------
-  // AUTOCOMPLETE
-  // ---------------------
-
+  // ----- AUTOCOMPLETE -----
   if (interaction.isAutocomplete()) {
 
     const focused = interaction.options.getFocused(true);
@@ -117,27 +115,38 @@ client.on("interactionCreate", async (interaction) => {
 
     try {
 
-      // ---- /map autocomplete ----
+      // ===== MAP AUTOCOMPLETE =====
       if (command === "map") {
 
+        // Gamemodes
         if (focused.name === "gamemode") {
           const res = await fetch(`${MAP_API}?api=gamemodes`);
           const gamemodes = await res.json();
 
-          const filtered = gamemodes
-            .filter(g => g.toLowerCase().includes(focused.value.toLowerCase()))
+          const formatted = gamemodes.map(g => ({
+            original: g,
+            formatted: formatGamemode(g)
+          }));
+
+          const filtered = formatted
+            .filter(g => g.formatted.includes(focused.value.toLowerCase()))
             .slice(0, 25)
-            .map(g => ({ name: g, value: g }));
+            .map(g => ({ name: g.formatted, value: g.formatted }));
 
           return safeRespond(interaction, filtered);
         }
 
+        // Maps
         if (focused.name === "map") {
-          const gm = interaction.options.getString("gamemode");
-          if (!gm) return safeRespond(interaction, []);
+          const gmInput = interaction.options.getString("gamemode");
+          if (!gmInput) return safeRespond(interaction, []);
 
-          const res = await fetch(`${MAP_API}?api=maps&gamemode=${encodeURIComponent(gm)}`);
-          const maps = await res.json();
+          const res = await fetch(`${MAP_API}?api=gamemodes`);
+          const gamemodes = await res.json();
+          const gmOriginal = unformatGamemode(gmInput, gamemodes);
+
+          const res2 = await fetch(`${MAP_API}?api=maps&gamemode=${encodeURIComponent(gmOriginal)}`);
+          const maps = await res2.json();
 
           const filtered = maps
             .filter(m => m.toLowerCase().includes(focused.value.toLowerCase()))
@@ -149,32 +158,45 @@ client.on("interactionCreate", async (interaction) => {
       }
 
 
-      // ---- /model autocomplete ----
+      // ===== MODEL AUTOCOMPLETE =====
       if (command === "model") {
 
+        // Gamemodes from MODELS API
         if (focused.name === "gamemode") {
-          const res = await fetch(`${MODELS_API}?api=gamemodes`);
-          const gamemodes = await res.json();
+          const res = await fetch(`${MODELS_API}?mode=json`);
+          const data = await res.json();
+          const gamemodes = data.gamemodes;
 
-          const filtered = gamemodes
-            .filter(g => g.toLowerCase().includes(focused.value.toLowerCase()))
+          const formatted = gamemodes.map(g => ({
+            original: g,
+            formatted: formatGamemode(g)
+          }));
+
+          const filtered = formatted
+            .filter(g => g.formatted.includes(focused.value.toLowerCase()))
             .slice(0, 25)
-            .map(g => ({ name: g, value: g }));
+            .map(g => ({ name: g.formatted, value: g.formatted }));
 
           return safeRespond(interaction, filtered);
         }
 
+        // Models per gamemode
         if (focused.name === "model") {
-          const gm = interaction.options.getString("gamemode");
-          if (!gm) return safeRespond(interaction, []);
+          const gmInput = interaction.options.getString("gamemode");
+          if (!gmInput) return safeRespond(interaction, []);
 
-          const res = await fetch(`${MODELS_API}?api=models&gamemode=${encodeURIComponent(gm)}`);
-          const models = await res.json();
+          const res = await fetch(`${MODELS_API}?mode=json`);
+          const data = await res.json();
+          const gmOriginal = unformatGamemode(gmInput, data.gamemodes);
+
+          const res2 = await fetch(`${MODELS_API}?mode=json&game=${encodeURIComponent(gmOriginal)}`);
+          const data2 = await res2.json();
+          const models = data2.models;
 
           const filtered = models
-            .filter(m => m.name.toLowerCase().includes(focused.value.toLowerCase()))
+            .filter(m => m.displayName.toLowerCase().includes(focused.value.toLowerCase()))
             .slice(0, 25)
-            .map(m => ({ name: m.name, value: m.name }));
+            .map(m => ({ name: m.displayName, value: m.displayName }));
 
           return safeRespond(interaction, filtered);
         }
@@ -186,23 +208,25 @@ client.on("interactionCreate", async (interaction) => {
   }
 
 
-  // ---------------------
-  // COMMAND EXECUTION
-  // ---------------------
-
+  // ----- COMMAND EXECUTION -----
   if (!interaction.isChatInputCommand()) return;
+
 
   // ===== /map =====
   if (interaction.commandName === "map") {
 
     await interaction.deferReply();
 
-    const gamemode = interaction.options.getString("gamemode", true);
+    const gmInput = interaction.options.getString("gamemode", true);
     const mapName = interaction.options.getString("map", true);
+
+    const resGM = await fetch(`${MAP_API}?api=gamemodes`);
+    const gamemodes = await resGM.json();
+    const gmOriginal = unformatGamemode(gmInput, gamemodes);
 
     try {
       const res = await fetch(
-        `${MAP_API}?api=map&gamemode=${encodeURIComponent(gamemode)}&map=${encodeURIComponent(mapName)}`
+        `${MAP_API}?api=map&gamemode=${encodeURIComponent(gmOriginal)}&map=${encodeURIComponent(mapName)}`
       );
       const data = await res.json();
 
@@ -213,9 +237,9 @@ client.on("interactionCreate", async (interaction) => {
       const embed = new EmbedBuilder()
         .setColor(0x00afff)
         .setDescription(
-          `**Gamemode:** \`${data.gamemode}\`\n` +
-          `**Map:** \`${data.name}\`\n` +
-          `**Download:** [Click here](${data.downloadUrl})`
+          `**gamemode:** \`${formatGamemode(data.gamemode)}\`\n` +
+          `**map:** \`${data.name}\`\n` +
+          `**download:** [click here](${data.downloadUrl})`
         )
         .setImage(data.imgUrl)
         .setFooter({ text: "Hive Resources" });
@@ -233,45 +257,46 @@ client.on("interactionCreate", async (interaction) => {
 
     await interaction.deferReply();
 
-    const gamemode = interaction.options.getString("gamemode", true);
+    const gmInput = interaction.options.getString("gamemode", true);
     const modelName = interaction.options.getString("model", true);
+
+    // Get gamemode list from models API
+    const resGM = await fetch(`${MODELS_API}?mode=json`);
+    const dataGM = await resGM.json();
+    const gmOriginal = unformatGamemode(gmInput, dataGM.gamemodes);
 
     try {
       const res = await fetch(
-        `${MODELS_API}?api=model&gamemode=${encodeURIComponent(gamemode)}&model=${encodeURIComponent(modelName)}`
+        `${MODELS_API}?mode=json&game=${encodeURIComponent(gmOriginal)}&open=${encodeURIComponent(modelName)}`
       );
       const data = await res.json();
 
-      if (data.error) {
-        return interaction.editReply(`❌ ${data.error}`);
+      if (!data.model) {
+        return interaction.editReply("❌ Model not found.");
       }
 
-      // Link to your 3D model viewer page
       const viewerUrl =
-        `${MODELS_API.replace("/exec","")}?game=${encodeURIComponent(gamemode)}&open=${encodeURIComponent(modelName)}`;
+        `${MODELS_API.replace("/exec","")}?game=${encodeURIComponent(gmOriginal)}&open=${encodeURIComponent(modelName)}`;
 
       const embed = new EmbedBuilder()
         .setColor(0x00afff)
         .setDescription(
-          `**Gamemode:** \`${gamemode}\`\n` +
-          `**Model:** \`${modelName}\`\n` +
-          `**3D Preview:** [Open viewer](${viewerUrl})\n` +
-          `**Download:** [Click here](${data.downloadUrl})`
+          `**gamemode:** \`${formatGamemode(gmOriginal)}\`\n` +
+          `**model:** \`${modelName}\`\n` +
+          `**3d preview:** [open viewer](${viewerUrl})\n` +
+          `**download:** [click here](${data.model.download})`
         )
-        .setImage(data.imgUrl)
+        .setImage(data.model.thumbnail)
         .setFooter({ text: "Hive Resources" });
 
       return interaction.editReply({ embeds: [embed] });
 
     } catch {
-      return interaction.editReply("❌ Error contacting Hive Resources API.");
+      return interaction.editReply("❌ Error contacting Hive Resources Models API.");
     }
   }
 });
 
 
-// =====================
-// Login
-// =====================
-
+// ---------- Login ----------
 client.login(TOKEN);

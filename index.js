@@ -3,13 +3,12 @@ import fetch from "node-fetch";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-const API_URL = process.env.HIVE_API_URL; 
-// example: https://script.google.com/macros/s/XXXXX/exec
+const API_URL = process.env.HIVE_API_URL;
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 
-// ----- Register Slash Command -----
+// ---- Register Slash Command ----
 const commands = [
   new SlashCommandBuilder()
     .setName("map")
@@ -36,16 +35,35 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 })();
 
 
-// ----- Interaction Handling -----
+// ---- Safe Autocomplete Helper ----
+async function safeRespond(interaction, choices) {
+  try {
+    if (!interaction.responded) {
+      await interaction.respond(choices);
+    }
+  } catch (err) {
+    // Ignore "Unknown interaction" errors — Discord timed out
+    if (err.code !== 10062) {
+      console.error("Autocomplete error:", err);
+    }
+  }
+}
+
+
+// ---- Interaction Handling ----
 client.on("interactionCreate", async (interaction) => {
 
-  // --- Autocomplete ---
+  // ===== AUTOCOMPLETE =====
   if (interaction.isAutocomplete()) {
     const focused = interaction.options.getFocused(true);
     const gm = interaction.options.getString("gamemode") || "";
 
+    // Immediately defer by sending empty response if slow
+    // (prevents Discord timeout)
+    const start = Date.now();
+
     try {
-      // Gamemode autocomplete
+      // ---- Gamemode ----
       if (focused.name === "gamemode") {
         const res = await fetch(`${API_URL}?api=gamemodes`);
         const gamemodes = await res.json();
@@ -55,12 +73,12 @@ client.on("interactionCreate", async (interaction) => {
           .slice(0, 25)
           .map(x => ({ name: x, value: x }));
 
-        return interaction.respond(filtered);
+        return safeRespond(interaction, filtered);
       }
 
-      // Map autocomplete
+      // ---- Map ----
       if (focused.name === "map") {
-        if (!gm) return interaction.respond([]);
+        if (!gm) return safeRespond(interaction, []);
 
         const res = await fetch(`${API_URL}?api=maps&gamemode=${encodeURIComponent(gm)}`);
         const maps = await res.json();
@@ -70,15 +88,16 @@ client.on("interactionCreate", async (interaction) => {
           .slice(0, 25)
           .map(x => ({ name: x, value: x }));
 
-        return interaction.respond(filtered);
+        return safeRespond(interaction, filtered);
       }
-    } catch {
-      return interaction.respond([]);
+
+    } catch (err) {
+      return safeRespond(interaction, []);
     }
   }
 
 
-  // --- Slash Command Execution ---
+  // ===== SLASH COMMAND =====
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName !== "map") return;
 
@@ -87,25 +106,29 @@ client.on("interactionCreate", async (interaction) => {
   const gamemode = interaction.options.getString("gamemode", true);
   const map = interaction.options.getString("map", true);
 
-  const url = `${API_URL}?api=map&gamemode=${encodeURIComponent(gamemode)}&map=${encodeURIComponent(map)}`;
-  const res = await fetch(url);
-  const data = await res.json();
+  try {
+    const url = `${API_URL}?api=map&gamemode=${encodeURIComponent(gamemode)}&map=${encodeURIComponent(map)}`;
+    const res = await fetch(url);
+    const data = await res.json();
 
-  if (data.error) {
-    return interaction.editReply(`❌ ${data.error}`);
+    if (data.error) {
+      return interaction.editReply(`❌ ${data.error}`);
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle(data.name)
+      .setDescription(`**Gamemode:** ${data.gamemode}`)
+      .addFields({ name: "Download (.glb)", value: `[Click here](${data.downloadUrl})` })
+      .setColor(0x00afff)
+      .setFooter({ text: "Hive Resources" });
+
+    if (data.imgUrl) embed.setImage(data.imgUrl);
+
+    await interaction.editReply({ embeds: [embed] });
+
+  } catch (err) {
+    await interaction.editReply("❌ Error contacting Hive Resources API");
   }
-
-  const embed = new EmbedBuilder()
-    .setTitle(data.name)
-    .setDescription(`**Gamemode:** ${data.gamemode}`)
-    .addFields({ name: "Download (.glb)", value: `[Click here](${data.downloadUrl})` })
-    .setColor(0x00afff)
-    .setFooter({ text: "Hive Resources" });
-
-  if (data.imgUrl) embed.setImage(data.imgUrl);
-
-  await interaction.editReply({ embeds: [embed] });
 });
-
 
 client.login(TOKEN);

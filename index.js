@@ -1,18 +1,19 @@
 import { 
-  Client, 
-  GatewayIntentBits, 
-  SlashCommandBuilder, 
-  REST, 
-  Routes, 
-  EmbedBuilder 
+  Client,
+  GatewayIntentBits,
+  SlashCommandBuilder,
+  REST,
+  Routes,
+  EmbedBuilder
 } from "discord.js";
 
 import fetch from "node-fetch";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-const MAP_API = process.env.HIVE_API_URL; 
-// This is your Apps Script /exec endpoint
+
+const MAP_API = process.env.HIVE_API_URL;           // Maps Apps Script
+const MODELS_API = process.env.HIVE_MODELS_API_URL; // Models Apps Script
 
 
 // =====================
@@ -23,7 +24,7 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 
 // =====================
-// Slash Command Builders
+// Slash Commands
 // =====================
 
 const mapCommand = new SlashCommandBuilder()
@@ -44,7 +45,7 @@ const mapCommand = new SlashCommandBuilder()
 
 const modelCommand = new SlashCommandBuilder()
   .setName("model")
-  .setDescription("Fetch a Hive Resources model (entity / item)")
+  .setDescription("Fetch a Hive Resources model (entity or item)")
   .addStringOption(opt =>
     opt.setName("gamemode")
       .setDescription("Gamemode")
@@ -80,7 +81,7 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 
 // =====================
-// Helper: Safe Autocomplete Respond
+// Helper: Safe Autocomplete
 // =====================
 
 async function safeRespond(interaction, choices) {
@@ -148,9 +149,8 @@ client.on("interactionCreate", async (interaction) => {
       // ---- /model autocomplete ----
       if (command === "model") {
 
-        // Gamemode list (reuse same gamemode source as maps)
         if (focused.name === "gamemode") {
-          const res = await fetch(`${MAP_API}?api=gamemodes`);
+          const res = await fetch(`${MODELS_API}?api=gamemodes`);
           const gamemodes = await res.json();
 
           const filtered = gamemodes
@@ -161,13 +161,11 @@ client.on("interactionCreate", async (interaction) => {
           return safeRespond(interaction, filtered);
         }
 
-        // Model list per gamemode
         if (focused.name === "model") {
           const gm = interaction.options.getString("gamemode");
           if (!gm) return safeRespond(interaction, []);
 
-          // This hits your model-viewer Apps Script JSON mode
-          const res = await fetch(`${MAP_API}?api=models&gamemode=${encodeURIComponent(gm)}`);
+          const res = await fetch(`${MODELS_API}?api=models&gamemode=${encodeURIComponent(gm)}`);
           const models = await res.json();
 
           const filtered = models
@@ -186,7 +184,7 @@ client.on("interactionCreate", async (interaction) => {
 
 
   // ---------------------
-  // SLASH COMMAND EXECUTION
+  // COMMAND EXECUTION
   // ---------------------
 
   if (!interaction.isChatInputCommand()) return;
@@ -238,7 +236,7 @@ client.on("interactionCreate", async (interaction) => {
 
     try {
       const res = await fetch(
-        `${MAP_API}?api=model&gamemode=${encodeURIComponent(gamemode)}&model=${encodeURIComponent(modelName)}`
+        `${MODELS_API}?api=model&gamemode=${encodeURIComponent(gamemode)}&model=${encodeURIComponent(modelName)}`
       );
       const data = await res.json();
 
@@ -246,9 +244,9 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.editReply(`❌ ${data.error}`);
       }
 
-      // Link to your 3D viewer page
+      // Build link to your 3D viewer
       const viewerUrl =
-        `${MAP_API.replace("/exec","")}?game=${encodeURIComponent(gamemode)}&open=${encodeURIComponent(modelName)}`;
+        `${MODELS_API.replace("/exec","")}?game=${encodeURIComponent(gamemode)}&open=${encodeURIComponent(modelName)}`;
 
       const embed = new EmbedBuilder()
         .setColor(0x00afff)

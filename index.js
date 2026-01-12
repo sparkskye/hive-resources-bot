@@ -12,8 +12,11 @@ import fetch from "node-fetch";
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 
-const MAP_API = process.env.HIVE_API_URL;           // Maps Apps Script
-const MODELS_API = process.env.HIVE_MODELS_API_URL; // Models Apps Script
+const MAP_API = process.env.HIVE_API_URL;           
+const MODELS_API = process.env.HIVE_MODELS_API_URL;
+
+// Your Discord server (guild) ID for instant command updates
+const GUILD_ID = "1197113840899461140";
 
 
 // =====================
@@ -66,17 +69,17 @@ const commands = [
 
 
 // =====================
-// Register Commands
+// Register Commands (Guild for instant updates)
 // =====================
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 (async () => {
   await rest.put(
-    Routes.applicationCommands(CLIENT_ID),
+    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
     { body: commands }
   );
-  console.log("Slash commands registered");
+  console.log("Slash commands registered to guild");
 })();
 
 
@@ -209,11 +212,10 @@ client.on("interactionCreate", async (interaction) => {
 
       const embed = new EmbedBuilder()
         .setColor(0x00afff)
-        .setTitle("Hive Resources")
         .setDescription(
           `**Gamemode:** \`${data.gamemode}\`\n` +
           `**Map:** \`${data.name}\`\n` +
-          `**Download (\`.${data.format}\`):** [Click here](${data.downloadUrl})`
+          `**Download:** [Click here](${data.downloadUrl})`
         )
         .setImage(data.imgUrl)
         .setFooter({ text: "Hive Resources" });
@@ -244,18 +246,17 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.editReply(`❌ ${data.error}`);
       }
 
-      // Build link to your 3D viewer
+      // Link to your 3D model viewer page
       const viewerUrl =
         `${MODELS_API.replace("/exec","")}?game=${encodeURIComponent(gamemode)}&open=${encodeURIComponent(modelName)}`;
 
       const embed = new EmbedBuilder()
         .setColor(0x00afff)
-        .setTitle("Hive Resources")
         .setDescription(
           `**Gamemode:** \`${gamemode}\`\n` +
           `**Model:** \`${modelName}\`\n` +
           `**3D Preview:** [Open viewer](${viewerUrl})\n` +
-          `**Download (\`.${data.format}\`):** [Click here](${data.downloadUrl})`
+          `**Download:** [Click here](${data.downloadUrl})`
         )
         .setImage(data.imgUrl)
         .setFooter({ text: "Hive Resources" });
